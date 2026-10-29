@@ -1,0 +1,18 @@
+{
+  "roadmap": "docs/总路线图.md",
+  "plan": "docs/work/后续工程总计划-*.md",
+  "decisions": "docs/work/现行决策.md",
+  "ledger": "docs/完成台账.md",
+  "index": "docs/索引.md",
+  "hotDir": "docs/work",
+  "archiveDir": "docs/work/archive",
+  "managed": ["docs", ".agents", "*.md"],
+  "skipDirs": ["evidence", "node_modules", ".git", ".next", "dist"],
+  "nextPackageMarker": "**唯一下一包**",
+  "processDocPattern": "(冻结|交付|审核|实现报告|勘察)",
+  "hotProcessLimit": 20,
+  "roadmapMaxBytes": 8192,
+  "remote": "origin",
+  "mainBranch": "main",
+  "redline": ["db/migrations/**", "vendor/**"]
+}
