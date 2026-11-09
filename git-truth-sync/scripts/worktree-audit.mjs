@@ -1,14 +1,22 @@
 #!/usr/bin/env node
 // 盘点所有 worktree:独有提交(不在远端主分支)、是否已在任一远端分支、未提交改动数、是否放在仓库目录内。
-// 默认只读。--remove-safe 只删除「独有=0 且 脏=0 且 不是当前检出」的 worktree(分支保留)。
-// 用法: node worktree-audit.mjs [--remove-safe]
+// 默认只读本地引用；--fetch 才联网更新。--remove-safe 只删除「独有=0 且 脏=0 且 不是当前检出」的 worktree(分支保留)。
+// 用法: node worktree-audit.mjs [--config <json>] [--fetch] [--remove-safe]
 
 import { git, tryGit, loadConfig, opts, root } from './gts-lib.mjs';
 
 const { flags, o } = opts();
 const cfg = loadConfig(o.config);
 const remoteMain = `${cfg.remote}/${cfg.mainBranch}`;
-tryGit('fetch', '-q', cfg.remote);
+if (flags.has('fetch') && tryGit('fetch', '-q', '--', cfg.remote) === null) {
+  console.error(`刷新远端 ${cfg.remote} 失败；停止盘点与清理，不使用旧引用冒充刷新结果。`);
+  process.exit(1);
+}
+if (tryGit('rev-parse', '--verify', `${remoteMain}^{commit}`) === null) {
+  console.error(`缺少有效的本地引用 ${remoteMain}；核对配置后显式 --fetch，不自动改用其他远端。`);
+  process.exit(1);
+}
+console.log(`比较基准：${remoteMain}（${flags.has('fetch') ? '本次已刷新' : '本地缓存，未联网刷新'}）`);
 const blocks = git('worktree', 'list', '--porcelain').split('\n\n').filter(Boolean);
 const rows = [];
 for (const b of blocks) {
@@ -19,7 +27,8 @@ for (const b of blocks) {
   if (!path || path === root) continue;
   const unique = Number(tryGit('rev-list', '--count', `${remoteMain}..${head}`) ?? NaN);
   const onRemote = (tryGit('branch', '-r', '--contains', head) ?? '').split('\n').filter(Boolean).length;
-  const dirty = (tryGit('-C', path, 'status', '--porcelain') ?? '').split('\n').filter(Boolean).length;
+  const status = tryGit('--no-optional-locks', '-C', path, 'status', '--porcelain');
+  const dirty = status === null ? NaN : status.split('\n').filter(Boolean).length;
   const inRepo = path.startsWith(root + '/');
   const safe = unique === 0 && dirty === 0;
   rows.push({ path, branch, unique, onRemote, dirty, inRepo, safe });

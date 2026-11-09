@@ -33,7 +33,21 @@ for (const file of opt('--allow-file')) {
   }
 }
 const cfgPath = opt('--config')[0] ?? join(root, '.docflow.json');
-const redline = existsSync(cfgPath) ? (JSON.parse(readFileSync(cfgPath, 'utf8')).redline ?? []) : [];
+if (!existsSync(cfgPath)) {
+  console.error(`缺少配置 ${cfgPath}；优先使用项目已有白名单脚本，或用 --config 指定配置。不会按空红线继续。`);
+  process.exit(2);
+}
+let redline;
+try {
+  redline = JSON.parse(readFileSync(cfgPath, 'utf8'))?.redline;
+} catch (error) {
+  console.error(`无法读取配置 ${cfgPath}：${error.message}`);
+  process.exit(2);
+}
+if (!Array.isArray(redline) || redline.some((value) => typeof value !== 'string' || !value.trim())) {
+  console.error(`配置 ${cfgPath} 必须显式包含 redline 字符串数组；确无红线时填写 []。`);
+  process.exit(2);
+}
 if (!argv.includes('--allow-redline')) deny.push(...redline);
 if (allow.length === 0) {
   console.error('白名单为空:用 --allow 或 --allow-file 给出合同白名单');

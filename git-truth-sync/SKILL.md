@@ -5,7 +5,7 @@ description: 保证“远端主分支是唯一真源”并且不丢任何人的�
 
 # 真源同步与 WIP 保全
 
-**真源只认提交**：远端主分支（`.docflow.json` 的 `remote`/`mainBranch`，缺省 `origin/main`）是文档与已上线代码的唯一真源。规则只有住在提交里，才能约束从 base 开工的 agent；工作区副本只对开着这个检出的会话可见。
+**真源只认提交**：先核对项目指定的远端主分支。通用脚本要求仓库根 `.docflow.json` 显式填写 `remote`、`mainBranch`、`managed`，或用 `--config <json>` 指定配置；缺失时停止，不猜 `origin/main`。项目已有等价脚本时优先使用项目版本。规则只有住在提交里，才能约束从 base 开工的 agent；工作区副本只对开着这个检出的会话可见。远端提交是源码依据，是否上线仍须发布证据。
 
 ## 先做的三件事（任何可能丢东西的 git 操作之前）
 
@@ -20,7 +20,7 @@ description: 保证“远端主分支是唯一真源”并且不丢任何人的�
 | `snapshot.mjs [--name <分支>]` / `snapshot.mjs --verify <分支>` | 建全量快照 / 复核“快照后没人动过” |
 | `classify-dirty.mjs --target <ref> [--copy-ref <ref>] --out <json>` | 把改动分成 code_tracked / doc_tracked_stale / doc_tracked_genuine / untracked_stale / untracked_genuine / blocking |
 | `verify-against-snapshot.mjs --snapshot <分支> --classify <json>` | 前移后逐文件核对真 WIP 与本机独有文件；三方合并过的单列 `merged` 待人工看 |
-| `worktree-audit.mjs [--remove-safe]` | 盘点 worktree（独有提交/远端是否有/脏/是否在仓库内）；`--remove-safe` 只删独有=0 且干净的 |
+| `worktree-audit.mjs [--config <json>] [--fetch] [--remove-safe]` | 默认只读本地引用，不联网、不更新引用或 index；显式 `--fetch` 刷新，失败即停止；`--remove-safe` 才尝试删除独有=0 且已确认干净的非当前 worktree |
 
 ## 主检出落后远端时
 

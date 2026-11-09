@@ -1,6 +1,6 @@
 # `.docflow.json` 字段
 
-放在仓库根。三个 skill 的脚本共用；缺省字段取默认值（见 `scripts/docflow-lib.mjs` 的 `DEFAULT_CONFIG`）。
+放在仓库根。三个 skill 的脚本共用。下表是文档初始化的默认值（见 `scripts/docflow-lib.mjs` 的 `DEFAULT_CONFIG`），不代表可以省略运行时的安全配置：Git 同步脚本要求显式提供 `remote`、`mainBranch`、`managed`；通用白名单脚本要求显式提供 `redline` 数组，确无红线才写 `[]`。缺文件或缺这些字段时停止，不猜测远端或按空红线继续。已有项目优先使用仓内脚本；需要外部配置时传 `--config <json>`。
 
 | 字段 | 含义 | 默认 |
 |---|---|---|

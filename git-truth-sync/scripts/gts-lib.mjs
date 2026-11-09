@@ -19,12 +19,23 @@ export function tryGit(...args) {
 
 export function loadConfig(path) {
   const p = path ?? join(root, '.docflow.json');
-  const cfg = existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : {};
+  if (!existsSync(p))
+    throw new Error(`缺少配置 ${p}；请使用项目已有脚本，或用 --config 指定经核对的配置。不会猜测 origin/main。`);
+  const cfg = JSON.parse(readFileSync(p, 'utf8'));
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg))
+    throw new Error(`配置 ${p} 必须是 JSON 对象。`);
+  for (const key of ['remote', 'mainBranch']) {
+    if (typeof cfg[key] !== 'string' || !cfg[key].trim() || cfg[key].startsWith('-'))
+      throw new Error(`配置 ${p} 必须显式填写有效的 ${key}。`);
+  }
+  if (!Array.isArray(cfg.managed) || cfg.managed.length === 0 ||
+      cfg.managed.some((value) => typeof value !== 'string' || !value.trim()))
+    throw new Error(`配置 ${p} 必须显式填写非空的 managed 路径数组，避免漏判项目文档。`);
   return {
-    remote: cfg.remote ?? 'origin',
-    mainBranch: cfg.mainBranch ?? 'main',
-    docPaths: (cfg.managed ?? ['docs', '.agents', '*.md']).filter((m) => m !== '*.md'),
-    rootMarkdown: (cfg.managed ?? ['*.md']).includes('*.md'),
+    remote: cfg.remote,
+    mainBranch: cfg.mainBranch,
+    docPaths: cfg.managed.filter((m) => m !== '*.md'),
+    rootMarkdown: cfg.managed.includes('*.md'),
   };
 }
 
