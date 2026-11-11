@@ -1,9 +1,12 @@
-// project-doc-flow 共用库:定位仓库、读 .docflow.json、收集受管 Markdown、解析/改写相对链接。
+// project-doc-flow 共用库:定位仓库、读项目配置(AGENTS.md frontmatter,经 _lib/agents-config)、收集受管 Markdown、解析/改写相对链接。
 // 只依赖 Node 标准库(≥18)。所有脚本以「当前工作目录所在的 git 仓库」为对象。
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, relative, sep, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { loadProjectConfig, printWarnings, exitOnConfigError } from '../../_lib/agents-config.mjs';
+export { globToRegExp } from '../../_lib/glob.mjs';
+import { globToRegExp } from '../../_lib/glob.mjs';
 
 export const DEFAULT_CONFIG = {
   roadmap: 'docs/总路线图.md',
@@ -49,11 +52,11 @@ export function repoRootFrom(cwd = process.cwd()) {
   }
 }
 
-/** 读配置:--config 指定优先,否则仓库根 .docflow.json,缺省字段取默认值。 */
+/** 读配置:--config 优先,否则仓库根 AGENTS.md frontmatter(旧式 .docflow.json 仍可读并告警);文档路径类字段缺省取默认值。 */
 export function loadConfig(root, configPath) {
-  const p = configPath ? resolve(configPath) : join(root, '.docflow.json');
-  const user = existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : {};
-  return { ...DEFAULT_CONFIG, ...user, _path: existsSync(p) ? p : null };
+  const project = exitOnConfigError(() => loadProjectConfig(root, configPath));
+  printWarnings(project);
+  return { ...DEFAULT_CONFIG, ...project.values, _path: project.source ? project.path : null, _source: project.source };
 }
 
 export function git(root, ...args) {
@@ -65,22 +68,6 @@ export function tryGit(root, ...args) {
   } catch {
     return null;
   }
-}
-
-/** glob → 正则:** 跨目录,* 不跨 /,? 单字符。 */
-export function globToRegExp(glob) {
-  let re = '';
-  for (let i = 0; i < glob.length; i += 1) {
-    const c = glob[i];
-    if (c === '*' && glob[i + 1] === '*') {
-      const slash = glob[i + 2] === '/';
-      re += slash ? '(?:.*/)?' : '.*';
-      i += slash ? 2 : 1;
-    } else if (c === '*') re += '[^/]*';
-    else if (c === '?') re += '[^/]';
-    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(`^${re}$`);
 }
 
 /** 解析一个可能带通配的单文件配置项(如 plan: "work/后续工程总计划-*.md"),返回匹配到的仓库相对路径数组。 */
@@ -142,17 +129,43 @@ export function relativeLink(fromFile, absTarget, originalTarget) {
   return rel + hash;
 }
 
+function stepFence(line, fence) {
+  const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (fence) {
+    if (marker && marker[1][0] === fence.char && marker[1].length >= fence.length && /^\s*$/.test(marker[2]))
+      return { inFence: true, nextFence: null };
+    return { inFence: true, nextFence: fence };
+  }
+  if (marker && (marker[1][0] === '~' || !marker[2].includes('`'))) {
+    return { inFence: true, nextFence: { char: marker[1][0], length: marker[1].length } };
+  }
+  return { inFence: false, nextFence: null };
+}
+
 export function rewriteLinks(text, fn) {
-  return text.replace(LINK_RE, (whole, target) => {
-    if (!isFileLikeTarget(target)) return whole;
-    const next = fn(target);
-    return next && next !== target ? `](${next})` : whole;
-  });
+  let fence = null;
+  return text
+    .split('\n')
+    .map((line) => {
+      const s = stepFence(line, fence);
+      fence = s.nextFence;
+      if (s.inFence) return line;
+      return line.replace(LINK_RE, (whole, target) => {
+        if (!isFileLikeTarget(target)) return whole;
+        const next = fn(target);
+        return next && next !== target ? `](${next})` : whole;
+      });
+    })
+    .join('\n');
 }
 
 export function listLinks(text) {
   const out = [];
+  let fence = null;
   text.split('\n').forEach((line, i) => {
+    const s = stepFence(line, fence);
+    fence = s.nextFence;
+    if (s.inFence) return;
     for (const m of line.matchAll(LINK_RE)) if (isFileLikeTarget(m[1])) out.push({ line: i + 1, target: m[1] });
   });
   return out;

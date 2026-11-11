@@ -27,7 +27,7 @@ const root = repoRootFrom();
 const cfg = loadConfig(root, args.one('config'));
 const errors = [];
 const warnings = [];
-const info = { config: cfg._path ? toRepoPath(root, cfg._path) || cfg._path : '(默认值,未找到 .docflow.json)' };
+const info = { config: cfg._path ? toRepoPath(root, cfg._path) || cfg._path : '(默认值,AGENTS.md 无 frontmatter)' };
 
 const tracked = new Set((tryGit(root, 'ls-files', '-z') ?? '').split('\0').filter(Boolean));
 const isTracked = (abs) => tracked.has(toRepoPath(root, abs));

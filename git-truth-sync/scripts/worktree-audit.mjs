@@ -7,16 +7,24 @@ import { git, tryGit, loadConfig, opts, root } from './gts-lib.mjs';
 
 const { flags, o } = opts();
 const cfg = loadConfig(o.config);
-const remoteMain = `${cfg.remote}/${cfg.mainBranch}`;
-if (flags.has('fetch') && tryGit('fetch', '-q', '--', cfg.remote) === null) {
+const isLocalOnly = cfg.remote === 'local';
+if (isLocalOnly) {
+  const remotes = (tryGit('remote') ?? '').split('\n').filter(Boolean);
+  if (remotes.length > 0) {
+    console.error(`remote 填了 "local"(仅用于纯本地仓),但仓库已有远端(${remotes.join(', ')})；请核对配置改为实际远端名。`);
+    process.exit(1);
+  }
+}
+const remoteMain = isLocalOnly ? cfg.mainBranch : `${cfg.remote}/${cfg.mainBranch}`;
+if (!isLocalOnly && flags.has('fetch') && tryGit('fetch', '-q', '--', cfg.remote) === null) {
   console.error(`刷新远端 ${cfg.remote} 失败；停止盘点与清理，不使用旧引用冒充刷新结果。`);
   process.exit(1);
 }
 if (tryGit('rev-parse', '--verify', `${remoteMain}^{commit}`) === null) {
-  console.error(`缺少有效的本地引用 ${remoteMain}；核对配置后显式 --fetch，不自动改用其他远端。`);
+  console.error(`缺少有效的本地引用 ${remoteMain}；${isLocalOnly ? '核对 main_branch' : '核对配置后显式 --fetch，不自动改用其他远端'}。`);
   process.exit(1);
 }
-console.log(`比较基准：${remoteMain}（${flags.has('fetch') ? '本次已刷新' : '本地缓存，未联网刷新'}）`);
+console.log(`比较基准：${remoteMain}（${isLocalOnly ? '纯本地仓，比较本地主分支' : flags.has('fetch') ? '本次已刷新' : '本地缓存，未联网刷新'}）`);
 const blocks = git('worktree', 'list', '--porcelain').split('\n\n').filter(Boolean);
 const rows = [];
 for (const b of blocks) {
@@ -36,7 +44,8 @@ for (const b of blocks) {
 for (const r of rows)
   console.log(`${r.safe ? '可清' : '保留'} 独有=${r.unique} 远端含=${r.onRemote} 脏=${r.dirty}${r.inRepo ? ' ⚠仓库内' : ''} ${r.branch} | ${r.path}`);
 const unpushed = rows.filter((r) => r.unique > 0 && r.onRemote === 0 && r.branch !== '(detached)');
-if (unpushed.length) console.log(`\n独有提交只在本机的分支(建议先推远端备份):\n  ${unpushed.map((r) => r.branch).join('\n  ')}`);
+if (!isLocalOnly && unpushed.length)
+  console.log(`\n独有提交只在本机的分支(建议先推远端备份):\n  ${unpushed.map((r) => r.branch).join('\n  ')}`);
 if (flags.has('remove-safe')) {
   for (const r of rows.filter((x) => x.safe)) {
     const ok = tryGit('worktree', 'remove', r.path) !== null;

@@ -1,6 +1,7 @@
 ---
 name: project-doc-flow
 description: 项目文档流转体系——总路线图当路由器、排期页第0节只写一行「唯一下一包」、现行决策页、完成台账、热区/冷区与关账转冷，配套文档流转门、转冷脚本和新项目初始化。用于：新项目铺文档骨架；问“项目进行到哪/下一步做什么/去哪看”；关账、新计划开始、写完任务包报告、改导航之后的收尾；热区文档堆积、总路线图变臃肿、坏链、唯一下一包不清楚时。Use for project roadmap/plan/decision docs, next-package routing, hot/cold doc archiving and doc-gate checks in any repo.
+disable-model-invocation: true
 ---
 
 # 项目文档流转
@@ -27,19 +28,19 @@ description: 项目文档流转体系——总路线图当路由器、排期页�
 
 ## 脚本（Node ≥18，零依赖，在目标仓库内执行）
 
-`<skill>` = 本 skill 目录（`~/.claude/skills/project-doc-flow` 或 `~/.agents/skills/project-doc-flow`）。配置读仓库根 `.docflow.json`，字段见 [references/config.md](references/config.md)。
+`<skill>` = 本 skill 目录（`~/.claude/skills/project-doc-flow` 或 `~/.agents/skills/project-doc-flow`）。配置读仓库根 `AGENTS.md` 的 frontmatter（`doc_*` 字段，见 [references/config.md](references/config.md)）。
 
 | 命令 | 何时 | 做什么 |
 |---|---|---|
-| `node <skill>/scripts/docflow-init.mjs --name <项目名>` | 新项目 | 写 `.docflow.json`，按模板建总路线图/排期页/决策页/台账/索引（AGENTS.md 缺失才建），只建不覆盖 |
+| `node <skill>/scripts/docflow-init.mjs --name <项目名>` | 新项目 | 按模板建总路线图/排期页/决策页/台账/索引，只建不覆盖（`AGENTS.md` 与 frontmatter 由 `task-package-orchestration` 的 `doctor.mjs --init --write` 建） |
 | `node <skill>/scripts/check-doc-flow.mjs` | 每次改文档、关账、转冷、改导航后 | 已提交受管文档 0 坏链；排期页恰 1 份且恰 1 行唯一下一包；总路线图 ≤ 上限；热区过程稿 ≤ 上限；冷区结构完整；主分支落后/文档未提交发 WARN（`--strict-sync` 升 ERROR） |
 | `node <skill>/scripts/doc-cold-archive.mjs <清单.json> [--dry-run]` | 关账转冷 | git mv 到冷区日期目录、双向重算链接、生成 manifest（源提交、前后 sha256、触发词、未结项）与 README，并 git add |
 
-项目若已把这些脚本复制进自己的 `scripts/`（如 `npm run check:docs`），优先用项目内版本——它随项目提交，执行者的 base 里一定有。
+项目若已在 `package.json` / `Makefile` 封装了调用全局脚本的命令入口（如 `pnpm check:docs`），可直接调该入口；不要在仓库 `scripts/` 内留脚本 `.mjs` 副本，避免与全局规则漂移。
 
 ## 工作流
 
-**新项目**：`docflow-init` → 填总路线图“当前阶段”和排期页第0节 → 在 AGENTS.md 填红线并同步 `.docflow.json` 的 `redline` → `check-doc-flow` → 提交。
+**新项目**：`doctor.mjs --init --write`（建 `AGENTS.md` 与 frontmatter）→ `docflow-init` → 填总路线图“当前阶段”和排期页第0节 → `check-doc-flow` → 提交。
 
 **回答“项目进行到哪”**：读总路线图 → 排期页第0节与第2节 → 必要时决策页。不要从冷区或旧对话推当前状态；生产状态只信最近有实查证据的发布审核。
 

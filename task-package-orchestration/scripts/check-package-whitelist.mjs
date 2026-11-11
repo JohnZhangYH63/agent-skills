@@ -1,91 +1,113 @@
 #!/usr/bin/env node
 // 任务包白名单检查(审核必跑,在被审仓库/worktree 内执行):列出 base 以来的全部改动
-// (已提交 + 工作区未提交 + 未跟踪),逐个对照冻结合同的白名单/黑名单。白名单外或命中黑名单 → 退出码 1。
-// 仓库根 .docflow.json 的 redline 恒为黑名单(除非合同显式授权并传 --allow-redline)。
+// (已提交 + 工作区未提交 + 未跟踪),逐个对照冻结合同的白名单/黑名单,并标出每个文件落在哪条泳道。
+// 白名单外、命中黑名单、或超过 --max-lane → 退出码 1;配置/参数问题 → 2。
+// 红线取自仓库根 AGENTS.md frontmatter 的 redline_globs,恒为黑名单。
 // 用法:
 //   node check-package-whitelist.mjs --base <SHA> --allow 'src/foo/**' --allow 'tests/foo/*.test.ts' [--deny 'x/**'] [--head <ref>]
 //   node check-package-whitelist.mjs --base <SHA> --allow-file <白名单文件>   # 每行一个 glob;# 注释;! 开头为黑名单
+//   --max-lane contained|wide|closed|redline   合同声明的泳道上限;改动落到更严的泳道即失败(合同放开了某条红线时写 redline)
+//   --allow-redline [<redline 里的 glob> …]   合同显式授权才用;不带值 = 放开全部红线,带值 = 只放开这几条
+//   --allow-empty   确需允许 base 与目标之间 0 文件改动时显式传入(默认 0 改动判失败,防 --base 误传 HEAD 真空放行)
+//   --config <path>   不用仓库根 AGENTS.md 时指定(.json 按旧式 .docflow.json 读)
 // glob: ** 跨目录, * 不跨 /, ? 单字符。
 
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { loadProjectConfig, printWarnings, exitOnConfigError } from '../../_lib/agents-config.mjs';
+import {
+  parseArgs,
+  readAllowFile,
+  matcher,
+  laneClassifier,
+  changedSince,
+  repoRoot,
+  LANES,
+  LANE_LABEL,
+  worstLane,
+} from '../../_lib/glob.mjs';
 
-const argv = process.argv.slice(2);
-const opt = (name) => argv.flatMap((a, i) => (a === name ? [argv[i + 1]] : []));
-const base = opt('--base')[0];
-const head = opt('--head')[0] ?? 'HEAD';
+const args = parseArgs();
+const base = args.one('base');
+const head = args.one('head') ?? 'HEAD';
 if (!base) {
   console.error('缺 --base <SHA>(取冻结合同里的“当前 base SHA”)');
   process.exit(2);
 }
-const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+const root = repoRoot();
 
-const allow = [...opt('--allow')];
-const deny = [...opt('--deny')];
-for (const file of opt('--allow-file')) {
-  for (const raw of readFileSync(file, 'utf8').split('\n')) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    if (line.startsWith('!')) deny.push(line.slice(1).trim());
-    else allow.push(line);
-  }
+const allow = [...args.all('allow')];
+const deny = [...args.all('deny')];
+for (const file of args.all('allow-file')) {
+  const parsed = readAllowFile(file);
+  allow.push(...parsed.allow);
+  deny.push(...parsed.deny);
 }
-const cfgPath = opt('--config')[0] ?? join(root, '.docflow.json');
-if (!existsSync(cfgPath)) {
-  console.error(`缺少配置 ${cfgPath}；优先使用项目已有白名单脚本，或用 --config 指定配置。不会按空红线继续。`);
+
+const project = exitOnConfigError(() => {
+  const p = loadProjectConfig(root, args.one('config'));
+  p.need('redline');
+  return p;
+});
+printWarnings(project);
+const cfg = project.values;
+
+const liftAll = args.flags.has('allow-redline');
+const lifted = args.all('allow-redline');
+const unknownLift = lifted.filter((g) => !cfg.redline.includes(g));
+if (unknownLift.length) {
+  console.error(`--allow-redline 的值必须是 ${project.keyName('redline')} 里的原样条目;不认识:${unknownLift.join(', ')}`);
   process.exit(2);
 }
-let redline;
-try {
-  redline = JSON.parse(readFileSync(cfgPath, 'utf8'))?.redline;
-} catch (error) {
-  console.error(`无法读取配置 ${cfgPath}：${error.message}`);
+const activeRedline = liftAll ? [] : cfg.redline.filter((g) => !lifted.includes(g));
+deny.push(...activeRedline);
+
+const maxLane = args.one('max-lane');
+if (maxLane && !LANES.includes(maxLane)) {
+  console.error(`--max-lane 只能是 ${LANES.join(' | ')}`);
   process.exit(2);
 }
-if (!Array.isArray(redline) || redline.some((value) => typeof value !== 'string' || !value.trim())) {
-  console.error(`配置 ${cfgPath} 必须显式包含 redline 字符串数组；确无红线时填写 []。`);
-  process.exit(2);
-}
-if (!argv.includes('--allow-redline')) deny.push(...redline);
 if (allow.length === 0) {
   console.error('白名单为空:用 --allow 或 --allow-file 给出合同白名单');
   process.exit(2);
 }
 
-function globToRegExp(glob) {
-  let re = '';
-  for (let i = 0; i < glob.length; i += 1) {
-    const c = glob[i];
-    if (c === '*' && glob[i + 1] === '*') {
-      const slash = glob[i + 2] === '/';
-      re += slash ? '(?:.*/)?' : '.*';
-      i += slash ? 2 : 1;
-    } else if (c === '*') re += '[^/]*';
-    else if (c === '?') re += '[^/]';
-    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(`^${re}$`);
-}
-const allowRe = allow.map(globToRegExp);
-const denyRe = deny.map((g) => [g, globToRegExp(g)]);
+const allowed = matcher(allow);
+const denied = matcher(deny);
+const laneOf = laneClassifier(cfg);
 
-const changed = new Set();
-const add = (out) => out.split('\0').forEach((p) => p && changed.add(p));
-add(git('diff', '--name-only', '-z', `${base}...${head}`));
-if (head === 'HEAD') {
-  // 未提交与未跟踪也是交付面:执行者忘提交的改动同样越界
-  add(git('diff', '--name-only', '-z', 'HEAD'));
-  add(git('ls-files', '--others', '--exclude-standard', '-z'));
-}
-
+const changed = changedSince(root, base, head);
 const bad = [];
-for (const path of [...changed].sort()) {
-  const hit = denyRe.find(([, re]) => re.test(path));
-  const ok = !hit && allowRe.some((re) => re.test(path));
-  console.log(`${ok ? '  ✓' : '  ✗'} ${path}${hit ? `  (黑名单 ${hit[0]})` : ok ? '' : '  (白名单外)'}`);
+const lanes = [];
+for (const path of changed) {
+  const hit = denied(path);
+  const ok = !hit && Boolean(allowed(path));
+  const { lane, glob } = laneOf(path);
+  lanes.push(lane);
+  const laneNote = lane === 'contained' ? '' : `  [${LANE_LABEL[lane]} ← ${glob}${lane === 'redline' && ok ? ',合同已授权' : ''}]`;
+  console.log(`${ok ? '  ✓' : '  ✗'} ${path}${hit ? `  (黑名单 ${hit})` : ok ? '' : '  (白名单外)'}${laneNote}`);
   if (!ok) bad.push(path);
 }
-console.log(`改动 ${changed.size} 个文件,越界 ${bad.length} 个(base ${base.slice(0, 10)}…${head};红线 ${redline.length} 条)`);
-process.exit(bad.length ? 1 : 0);
+console.log(
+  `改动 ${changed.length} 个文件,越界 ${bad.length} 个(base ${base.slice(0, 10)}…${head};红线 ${cfg.redline.length} 条` +
+    `${liftAll ? ',本次全部放开' : lifted.length ? `,本次放开 ${lifted.length} 条` : ''})`,
+);
+
+const worst = worstLane(lanes);
+const count = (l) => lanes.filter((x) => x === l).length;
+console.log(
+  `泳道:最严 = ${LANE_LABEL[worst]}(${LANES.filter((l) => count(l)).map((l) => `${LANE_LABEL[l]} ${count(l)}`).join(' / ') || '无改动'})` +
+    (cfg.closedLane === undefined ? `;未配置 ${project.keyName('closedLane')},封死泳道未参与判定` : ''),
+);
+if (worst === 'closed' || worst === 'redline')
+  console.log('  ! 触及封死泳道/红线:机检与 ACCEPT 都不放行 merge,需 owner 对本次改动逐次明确授权并写明回退路径。');
+
+let emptyDiff = false;
+if (changed.length === 0 && !args.flags.has('allow-empty')) {
+  emptyDiff = true;
+  console.log(`  ✗ base(${base.slice(0, 10)})与 ${head} 之间无任何文件改动:核对 --base 是否误传成了 HEAD(确需放行空改动加 --allow-empty)。`);
+}
+let laneExceeded = false;
+if (maxLane && LANES.indexOf(worst) > LANES.indexOf(maxLane)) {
+  laneExceeded = true;
+  console.log(`  ✗ 超过合同泳道上限 ${LANE_LABEL[maxLane]}:不得 ACCEPT;重新定级或 ESCALATE。`);
+}
+process.exit(bad.length || laneExceeded || emptyDiff ? 1 : 0);
