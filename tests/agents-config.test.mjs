@@ -403,3 +403,35 @@ test('install.sh links skills and global preferences across Claude, Codex and Ge
   assert.equal(readFileSync(join(fakeHome, '.codex/AGENTS.md'), 'utf8'), 'custom user note\n');
   assert.match(first.stdout, /跳过 .*\.codex\/AGENTS\.md:已有不同内容/);
 });
+
+test('doctor emits passive obsolescence probes without WARN/ERROR and scripts tolerate .claude/worktrees', (t) => {
+  const withAgedConstraint =
+    agents({ remote: 'local', doc_ledger: 'docs/完成台账.md' }) +
+    '\n## 4. 切包约束\n\n- 2025-01-10 · 旧约束 · PKG-1 · 退场：满足后删\n';
+  const f = fixture(t, withAgedConstraint);
+  const rows = Array.from(
+    { length: 10 },
+    (_, i) => `| 2026-10-${String(10 + i).padStart(2, '0')} | PKG-${i} | abc | ACCEPT | ok | 无 | — |`,
+  ).join('\n');
+  f.put('docs/完成台账.md', `# 台账\n\n${rows}\n`);
+  f.git('add', '.');
+  f.git('commit', '-qm', 'seed ledger and aged constraint');
+  const startBase = f.git('rev-parse', 'HEAD');
+
+  const docRes = f.run(doctor);
+  assert.equal(docRes.status, 0, docRes.stdout);
+  assert.match(docRes.stdout, /过时探针: 台账最近 10 包连续首轮 ACCEPT/);
+  assert.match(docRes.stdout, /过时探针: 超 90 天切包约束\(项目 1 \//);
+  assert.match(docRes.stdout, /体检:0 ERROR \/ 0 WARN/);
+
+  // 模拟 Claude 原生 .claude/worktrees/ 在仓内创建子 worktree,验证白名单不误报越界、audit 识别为 [Claude仓内]
+  const cwt = join(f.repo, '.claude/worktrees/agent-1');
+  f.git('worktree', 'add', '-q', '-b', 'claude-wt', cwt);
+  f.put('src/a.js', '2\n');
+  const wl = f.run(whitelist, '--base', startBase, '--allow', 'src/**');
+  assert.equal(wl.status, 0, wl.stdout + wl.stderr);
+  const aud = f.run(audit);
+  assert.equal(aud.status, 0, aud.stderr);
+  assert.match(aud.stdout, /\[Claude仓内\]/);
+  assert.doesNotMatch(aud.stdout, /⚠仓库内/);
+});

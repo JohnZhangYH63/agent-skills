@@ -148,7 +148,8 @@ export function changedSince(root, base, head = 'HEAD') {
   const changed = new Set(zlist(root, 'diff', '--no-renames', '--name-only', '-z', `${base}...${head}`));
   if (head === 'HEAD') {
     for (const p of zlist(root, 'diff', '--no-renames', '--name-only', '-z', 'HEAD')) changed.add(p);
-    for (const p of zlist(root, 'ls-files', '--others', '--exclude-standard', '-z')) changed.add(p);
+    for (const p of zlist(root, 'ls-files', '--others', '--exclude-standard', '-z'))
+      if (!p.startsWith('.claude/worktrees/')) changed.add(p);
   }
   return [...changed].sort();
 }

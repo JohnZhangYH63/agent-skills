@@ -12,7 +12,7 @@
 可并行于：（文件域不相交的包 ID；附 check-disjoint 原始输出）
 
 当前 base SHA：（git fetch <remote> 后取远端主分支或列明分支的 SHA；不取未核对的本地分支）
-worktree：（仓库目录之外）
+worktree：（优先复用宿主仓外原生 worktree，或手建在仓库目录外；已在独立 worktree 内直接用，禁套娃）
 branch：
 运行环境与独占租约：（新 worktree 依赖就绪方式；端口 / Compose project / 测试库等共享运行槽位谁独占、何时归还；纯静态改动写“无共享运行态”）
 

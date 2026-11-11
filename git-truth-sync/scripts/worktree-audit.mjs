@@ -37,12 +37,13 @@ for (const b of blocks) {
   const onRemote = (tryGit('branch', '-r', '--contains', head) ?? '').split('\n').filter(Boolean).length;
   const status = tryGit('--no-optional-locks', '-C', path, 'status', '--porcelain');
   const dirty = status === null ? NaN : status.split('\n').filter(Boolean).length;
-  const inRepo = path.startsWith(root + '/');
+  const claudeManaged = path.startsWith(root + '/.claude/worktrees/');
+  const inRepo = path.startsWith(root + '/') && !claudeManaged;
   const safe = unique === 0 && dirty === 0;
-  rows.push({ path, branch, unique, onRemote, dirty, inRepo, safe });
+  rows.push({ path, branch, unique, onRemote, dirty, inRepo, claudeManaged, safe });
 }
 for (const r of rows)
-  console.log(`${r.safe ? '可清' : '保留'} 独有=${r.unique} 远端含=${r.onRemote} 脏=${r.dirty}${r.inRepo ? ' ⚠仓库内' : ''} ${r.branch} | ${r.path}`);
+  console.log(`${r.safe ? '可清' : '保留'} 独有=${r.unique} 远端含=${r.onRemote} 脏=${r.dirty}${r.claudeManaged ? ' [Claude仓内]' : r.inRepo ? ' ⚠仓库内' : ''} ${r.branch} | ${r.path}`);
 const unpushed = rows.filter((r) => r.unique > 0 && r.onRemote === 0 && r.branch !== '(detached)');
 if (!isLocalOnly && unpushed.length)
   console.log(`\n独有提交只在本机的分支(建议先推远端备份):\n  ${unpushed.map((r) => r.branch).join('\n  ')}`);

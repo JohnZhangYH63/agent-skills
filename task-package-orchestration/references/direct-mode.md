@@ -3,7 +3,7 @@
 > 适用：John 直接说「改专项」（前端视觉、布局、按钮交互，或边界已知的单一模块优化，可任选擅长模型）。免开总工、免写冻结合同（2026-11-11 John 明确同意增设）。
 
 1. **读边界**：先读当前仓库根 `AGENTS.md`（获取 `redline_globs`、`closed_lane_globs`、`wide_lane_globs`、`contract_doc`、`check_cmds`）。
-2. **隔离现场**：先看 `git status -s` 与 `git worktree list`；若主检出有未提交改动或并行会话，先在**仓库目录外**建独立 `git worktree` 再动手，记下 `<起始SHA>`。
+2. **隔离现场（禁套娃）**：先看 `git rev-parse --git-dir`——若当前已在独立 worktree（输出含 `/worktrees/`，如 Codex / Claude / Antigravity 原生切好的）直接原地使用，**严禁在里面再建一层 worktree**；仅当身处共享主检出且有未提交改动或并行会话时，用宿主原生 worktree 或在**仓库目录外**手建 `git worktree`（若主检出开着 dev 监听，避开仓内的 `.claude/worktrees/`），记下 `<起始SHA>`。
 3. **硬边界与熔断**：
    - 只改目标模块目录；严禁触碰 `contract_doc`（共享接口契约）、`closed_lane_globs` 及未获本次明确点名的 `redline_globs`。
    - 若 John 本次专门点名给某条红线目录做视觉换皮（如 `chaoye` 的渲染器组件），只改样式/展现、**不改外部接口与逻辑**，白名单机检传 `--allow-redline "<该条glob>"`。

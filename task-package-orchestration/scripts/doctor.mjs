@@ -275,6 +275,35 @@ if (project) {
         .find((l) => l.includes(marker));
       if (nextLine) infos.push(`下一包: ${nextLine.trim()}`);
     }
+
+    // 被动过时探针(只输出 INFO 提示,绝不升 WARN/ERROR):① 台账连续 ≥10 包零返修空转;② 超 90 天切包约束复核
+    const ledgerPath = exactDoc(cfg.ledger);
+    if (ledgerPath) {
+      const pkgRows = read(ledgerPath)
+        .split(/\r?\n/)
+        .map((l) => ({ line: l, m: l.match(/^\|\s*(20\d{2}-\d{2}-\d{2})\s*\|/) }))
+        .filter((x) => x.m && /\b(ACCEPT|REWORK_ONCE|ESCALATE)\b/.test(x.line));
+      if (pkgRows.length >= 10) {
+        const asc = pkgRows[0].m[1] <= pkgRows[pkgRows.length - 1].m[1];
+        const recent = asc ? pkgRows.slice(-10) : pkgRows.slice(0, 10);
+        if (recent.every((x) => !/REWORK(_ONCE)?|ESCALATE|返修/.test(x.line)))
+          infos.push('过时探针: 台账最近 10 包连续首轮 ACCEPT(0 返修/升级)——可评估减少拆包或更多走单循环/改专项。');
+      }
+    }
+    const nowMs = Date.now();
+    const countAged = (lines) =>
+      lines.filter((l) => {
+        const m = l.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+        return m && (nowMs - Date.parse(m[1])) / 86400000 > 90;
+      }).length;
+    const secStart = body.findIndex((l) => /^##\s+.*切包约束/.test(l));
+    const secRest = secStart >= 0 ? body.slice(secStart + 1) : [];
+    const secEnd = secRest.findIndex((l) => /^##\s+/.test(l));
+    const projAged = countAged(secEnd >= 0 ? secRest.slice(0, secEnd) : secRest);
+    const lessonsFile = resolve(here, '../references/lessons.md');
+    const globalAged = existsSync(lessonsFile) ? countAged(readFileSync(lessonsFile, 'utf8').split(/\r?\n/)) : 0;
+    if (projAged + globalAged > 0)
+      infos.push(`过时探针: 超 90 天切包约束(项目 ${projAged} / 全局 ${globalAged})——核对其「退场条件」是否已成立。`);
   }
 }
 
