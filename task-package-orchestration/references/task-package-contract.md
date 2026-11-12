@@ -8,7 +8,7 @@
 运行模式：STANDARD | FALLBACK
 泳道上限：contained | wide | closed | redline（lane.mjs --allow-file 的结果；closed 与 redline 须附 owner 授权原话、日期与回退路径，redline 另写明放开哪条 glob）
 
-依赖：（读哪个包的哪个产出——文件或接口名；没有就写“无”。说不出跨过来的是什么，就不是依赖）
+依赖：（读哪个包的哪个产出——文件或接口名；长在新界面/新骨架上的扇出包须附样板切片的 owner 确认原话、日期与截图路径；没有就写“无”。说不出跨过来的是什么，就不是依赖）
 可并行于：（文件域不相交的包 ID；附 check-disjoint 原始输出）
 
 当前 base SHA：（git fetch <remote> 后取远端主分支或列明分支的 SHA；不取未核对的本地分支）
