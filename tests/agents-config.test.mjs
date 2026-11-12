@@ -279,6 +279,29 @@ test('whitelist blocks git mv out of redline and rejects empty diffs by default'
   assert.match(moved.stdout, /protected\/data\.txt {2}\(黑名单 protected\/\*\*\)/);
 });
 
+test('whitelist rejects branches cut from a stale commit instead of contract base', (t) => {
+  const f = fixture(t);
+  const v1 = f.base;
+  f.put('src/b.js', '2\n');
+  f.git('add', 'src/b.js');
+  f.git('commit', '-qm', 'advance main to v2');
+  const v2 = f.git('rev-parse', 'HEAD');
+
+  // 执行者误从旧 v1 切出 worktree 改了白名单内的 src/a.js
+  const wt = join(f.dir, 'stale-worker');
+  f.git('worktree', 'add', '-q', '-b', 'pkg-stale', wt, v1);
+  writeFileSync(join(wt, 'src/a.js'), 'worker edit\n');
+  execFileSync('git', ['add', 'src/a.js'], { cwd: wt });
+  execFileSync('git', ['commit', '-qm', 'worker commit on v1'], { cwd: wt });
+
+  const runWt = (...args) => spawnSync(process.execPath, [whitelist, ...args], { cwd: wt, encoding: 'utf8' });
+  const stale = runWt('--base', v2, '--allow', 'src/a.js');
+  assert.equal(stale.status, 1);
+  assert.match(stale.stdout, new RegExp(`并非基于合同 base\\(${v2.slice(0, 10)}\\) 构建\\(实际分叉点 ${v1.slice(0, 10)}\\)`));
+  assert.equal(runWt('--base', v2, '--allow', 'src/a.js', '--allow-non-ancestor').status, 0);
+  assert.equal(runWt('--base', 'deadbeefdeadbeef', '--allow', 'src/a.js').status, 2);
+});
+
 test('lane and disjoint catch **/ segment globs on non-existent paths without false alarms on src/**', (t) => {
   const f = fixture(t, agents({ closed_lane_globs: ['**/billing/**', '**/Dockerfile*'] }));
   assert.equal(f.run(lane, '--allow', 'src/**', '--max-lane', 'contained').status, 0);

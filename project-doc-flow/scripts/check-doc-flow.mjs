@@ -99,8 +99,17 @@ if (branch === cfg.mainBranch && tryGit(root, 'rev-parse', '--verify', '-q', rem
     .map(Number);
   info.mainVsRemote = { ahead, behind };
   if (behind > 0) warnings.push(`本地 ${cfg.mainBranch} 落后 ${remoteRef} ${behind} 个提交:先保全 WIP 再前移(git-truth-sync)`);
-  const docDirs = cfg.managed.filter((m) => m !== '*.md');
-  const dirty = (tryGit(root, 'status', '--porcelain', '--', ...docDirs) ?? '').split('\n').filter(Boolean).length;
+  const docDirs = cfg.managed.filter((m) => m !== '*.md').map((m) => m.replace(/\/+$/, ''));
+  const rootMd = cfg.managed.includes('*.md');
+  const isManagedDoc = (p) =>
+    docDirs.some((d) => p === d || p.startsWith(`${d}/`)) || (rootMd && !p.includes('/') && p.endsWith('.md'));
+  const dirtyPaths = new Set([
+    ...(tryGit(root, 'diff', '--name-only', '-z', 'HEAD') ?? '').split('\0').filter(Boolean),
+    ...(tryGit(root, 'ls-files', '--others', '--exclude-standard', '-z') ?? '')
+      .split('\0')
+      .filter((p) => p && !p.startsWith('.claude/worktrees/')),
+  ]);
+  const dirty = [...dirtyPaths].filter(isManagedDoc).length;
   if (dirty > 0) warnings.push(`有 ${dirty} 条未提交文档改动:文档真源须在提交里`);
 }
 if (args.flags.has('strict-sync')) errors.push(...warnings.splice(0));

@@ -34,19 +34,34 @@ node <skill>/scripts/snapshot.mjs --verify snapshot/main-worktree-YYYYMMDD
 ## 4. 腾路 → 快进 → 放回
 
 ```bash
-# 4a 存代码 WIP 补丁(二进制安全)
-git diff --binary HEAD -- $(jq -r '.code_tracked[]' /tmp/gts-classify.json) > /tmp/gts-wip.patch
-# 4b 真文档改动拷到临时目录(doc_tracked_genuine)
-# 4c 已跟踪改动还原到 HEAD(WIP 已在补丁 + 快照里)
-git checkout HEAD -- <code_tracked + doc_tracked_stale + doc_tracked_genuine>
-# 4d 删除 untracked_stale(与副本来源逐字节相同,目标/快照里都有)
-# 4e 确认没有已跟踪改动,然后快进
-git status --porcelain | grep -v '^??'   # 应为空
+# 4a 存代码 WIP 补丁(二进制安全;code_tracked 为空时不生成补丁,防空 pathspec 误把旧文档打进去)
+rm -f /tmp/gts-wip.patch
+node -e '
+  const { readFileSync, writeFileSync } = require("fs");
+  const { execFileSync } = require("child_process");
+  const files = JSON.parse(readFileSync("/tmp/gts-classify.json", "utf8")).code_tracked;
+  if (files.length) writeFileSync("/tmp/gts-wip.patch", execFileSync("git", ["diff", "--binary", "HEAD", "--", ...files], { maxBuffer: 1 << 28 }));
+'
+# 4b 真文档改动拷到临时目录(doc_tracked_genuine 非空时)
+# 4c 已跟踪改动还原到 HEAD,并删除与副本来源逐字节相同的 untracked_stale(均已在快照里)
+node -e '
+  const { readFileSync, rmSync } = require("fs");
+  const { execFileSync } = require("child_process");
+  const c = JSON.parse(readFileSync("/tmp/gts-classify.json", "utf8"));
+  const tracked = [...c.code_tracked, ...c.doc_tracked_stale, ...c.doc_tracked_genuine];
+  if (tracked.length) execFileSync("git", ["checkout", "HEAD", "--", ...tracked]);
+  for (const p of c.untracked_stale) rmSync(p, { force: true });
+'
+# 4d 确认没有已跟踪改动,然后快进
+git status --porcelain -uno   # 应为空
 git merge --ff-only <远端>/<主分支>
-# 4f 放回 WIP
-git apply --3way /tmp/gts-wip.patch && git reset -q   # 退回成未暂存改动,保持原状
-grep -l '^<<<<<<<' $(git diff --name-only)            # 应为空;有冲突就人工合并
-# 4g 拷回真文档改动(目标也改过的用 git merge-file)
+# 4e 放回代码 WIP(仅当存在非空补丁时)
+if [ -s /tmp/gts-wip.patch ]; then
+  git apply --3way /tmp/gts-wip.patch || true
+  git diff --name-only --diff-filter=U   # 应为空;非空说明三方合并有冲突,先人工解决再 reset
+  git reset -q                           # 退回成未暂存改动,保持原状
+fi
+# 4f 拷回真文档改动(目标也改过的用 git merge-file)
 ```
 
 ## 5. 核对
