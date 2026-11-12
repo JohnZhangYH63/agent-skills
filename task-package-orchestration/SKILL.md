@@ -1,6 +1,6 @@
 ---
 name: task-package-orchestration
-description: 跨项目的开发任务编排协议——先判断拆不拆；按依赖画图、按撤回代价（爆炸半径）分泳道；冻结任务包合同；独立上下文的执行者；程序化闸门（白名单、泳道、验收命令）；审核三态与只打回失败单元；关账后把教训变成切包约束。配 doctor / lane / check-disjoint / check-package-whitelist / gate-run 脚本，项目配置只读仓库根 AGENTS.md 的 frontmatter。用于：接到开发任务要决定怎么做；拆任务派给子代理、别的会话或别的模型；写冻结任务包；审核交回的 diff；决定能否 merge/push/deploy；新项目接入或体检规则是否散落。只在当前提示授予编排/派包/审包职责时用于编排；纯执行会话只读合同部分。Use for planning, delegating, gating and reviewing development work in any repo.
+description: 跨项目的开发任务编排协议——先判断拆不拆；锁死终局准星、单波滚动切包（禁全量预拆）；按撤回代价（爆炸半径）分泳道；冻结当前波任务包合同；独立上下文的执行者；程序化闸门（白名单、泳道、验收命令）；审核三态与只打回失败单元；关账对标终局重判并沉淀切包约束。配 doctor / lane / check-disjoint / check-package-whitelist / gate-run 脚本，项目配置只读仓库根 AGENTS.md 的 frontmatter。用于：接到开发任务要决定怎么做；拆任务派给子代理、别的会话或别的模型；写冻结任务包；审核交回的 diff；决定能否 merge/push/deploy；新项目接入或体检规则是否散落。只在当前提示授予编排/派包/审包职责时用于编排；纯执行会话只读合同部分。Use for planning, delegating, gating and reviewing development work in any repo.
 disable-model-invocation: true
 ---
 
@@ -32,11 +32,13 @@ disable-model-invocation: true
 不拆时仍然：先写可判败的验收条件，再动手；做完由新上下文审核，不自己给自己过。
 owner 点名「改专项」（单模块/前端直改，免总工）不走本协议，唯一细则见 [references/direct-mode.md](references/direct-mode.md)（2026-11-11 John 同意增设）。
 
-## 3. 画图：单元、依赖、节点
+## 3. 滚动切包与画图（禁全量预拆）
 
+- **锁死终局，单波滚动（Rolling Wave）**：先在排期页写死**终局可观察目标**（用户最终看到/跑出什么，变更须 owner 拍板），但**每次只精拆当前可立即开工的这一波**（串行只拆「唯一下一包」1 个；真并行才拆同波互不依赖的若干包）。**严禁在 $t=0$ 把后续多波次包一次性拆死，严禁给尚未轮到的下游包提前编死包号、划白名单或写冻结合同**；远期只留 3~5 行可推翻的里程碑草图。
+- **纵切探路，禁按层横切**：除纯地基共享契约外，禁止拆成“纯库表包 → 纯接口包 → 纯前端包”（前几包单测全绿却看不见端到端结果）。首包必须打穿一条最薄的端到端闭环（哪怕只跑通 1 个最小真实场景），先暴露真实摩擦再定下一波。
 - **单元**：一个可独立验收的结果，一进一出。每包只交付一个。
 - **依赖**：只有“下游真的读上游的产出”才算边。说不出跨过去的是哪个文件或接口，就没有边，不该等。
-- **切分维度**：按“改错了会波及谁”切，让各单元文件域不相交、各自能独立判败；不按文件夹或工作量平均切。共享接口先冻结成合同，再并行。
+- **切分维度**：按“改错了会波及谁”切，让同波各单元文件域不相交、各自能独立判败；不按文件夹或工作量平均切。共享接口先冻结成合同，再并行。
 - **节点四种**：拆分（编排者，用当前最强模型）、执行（独立上下文，一包一个）、**代码节点**（合并、去重、排序、比对、白名单、泳道——不需要“判断/评估/总结”的转换一律写成脚本，不交给模型）、闸门（审核者 + 脚本）。
 
 扇出前过三道闸：① **先验样板切片**：要扇出的包若共同长在 owner 还没实点确认过的新界面或新骨架上，先由 `FLAGSHIP_DIRECT` 交付首个完整纵切片，经 owner 实点确认并留凭据（原话、日期、截图路径，写进后续各包合同的「依赖」栏）后再扇出，禁凭纸面规格批包；② **地基预埋探针**：已知的一类失败，先在地基包里写成 `check_cmds` 能判败的探针，先于扇出；③ **文件与运行态不相交**：跑 `node <skill>/scripts/check-disjoint.mjs --pkg A=a.txt --pkg B=b.txt`（重叠禁并行），且端口、Docker Compose 项目名、测试库等共享运行槽位各自独占，不共用同一套环境。
@@ -67,15 +69,15 @@ owner 点名「改专项」（单模块/前端直改，免总工）不走本协�
 ## 6. 流程
 
 1. **查真实状态（三跳冷启动）**：核当前授权，跑 `doctor.mjs`（有附加 worktree 或脏树补跑 `git-truth-sync/scripts/worktree-audit.mjs`，配了 `doc_*` 跑 `project-doc-flow/scripts/check-doc-flow.mjs`）。进度只走三跳：路线图 → 排期第 0 节 → 现行决策/台账末行；不扫冷区与历史包报告，不把旧对话或“文件存在”当事实。
-2. **定拆不拆**（§2），拆的话画依赖、定泳道、跑不相交检查。
-3. **冻结合同**：完整按 [references/task-package-contract.md](references/task-package-contract.md) 填。base 一律在 `git fetch <remote>` 之后取远端主分支或列明分支的 SHA（复用宿主原生 worktree 时亦须核对起始点对齐，防默认取错 `origin/HEAD`）；手工建 worktree 放在仓库目录之外（主检出开着 dev 监听时避开仓内的 `.claude/worktrees/`）。验收条件先于实现写好，且程序可判。
+2. **定拆不拆与当前波边界**（§2、§3）：核对排期页终局目标；若需拆包，**只切当前这一波**（禁预拆下游波次），定泳道，同波并行跑不相交检查。
+3. **冻结当前波合同**（下游波次禁预冻结）：完整按 [references/task-package-contract.md](references/task-package-contract.md) 填。base 一律在 `git fetch <remote>` 之后取远端主分支或列明分支的 SHA（复用宿主原生 worktree 时亦须核对起始点对齐，防默认取错 `origin/HEAD`）；手工建 worktree 放在仓库目录之外（主检出开着 dev 监听时避开仓内的 `.claude/worktrees/`）。验收条件先于实现写好，且程序可判。
 4. **派发（空上下文）**：提示自包含，子代理**不 fork 编排者历史**，只传角色、合同路径与必读清单。
 5. **非对称回传**：长过程、diff 与通过的命令输出落盘进报告和 `gate.json`，不在回复里重贴：
    - **绿包**：只回结构化短回执（包 ID、commit、白名单与 gate 计数、报告路径、**`UNVERIFIED` 未验证边界**——未验项禁省）。`contained` 凭回执与退出码推进；`wide`/`closed` 或有疑点时下钻读真实 diff。
    - **红包（阻塞 / `REWORK_ONCE` / `ESCALATE`）**：短回执后直接附最小关键证据（失败命令、`文件:行`、期望/实际或分叉点），免二次往返。
 6. **过闸**：按 [references/review-record.md](references/review-record.md)。先确认本 worktree 依赖就绪且运行槽位独占，再跑 `check-package-whitelist.mjs --base <SHA> --allow-file … --max-lane <合同泳道>` → `gate-run.mjs [--baseline …]` → 复跑合同验收、看语义 diff。缺浏览器/真机/真实运行环境的审核者不得将构建与单测通过签为 UI 或运行态 `ACCEPT`。审核全文落盘，回传同守第 5 步。
 7. **裁决只有三态**：`ACCEPT` / `REWORK_ONCE` / `ESCALATE`。裁决必须改变下一步做什么；不改变下一步的只是报告。
-8. **关账**：报告落盘、台账加行、更新唯一下一包（文档流转见 `project-doc-flow`），并做 §8 的学习边。`ACCEPT` 不等于授权 merge/push/deploy——那要 RELEASE_OWNER 单独执行并核对源 SHA、工作树、目标环境与回退。
+8. **关账与对标终局重判**：报告落盘、台账加行 → **拿本包真实产物对照排期页终局目标重校准**（砍掉已多余的远期设想、合并碎项或修正下一波切法；不改终局目标与验收底线时，编排者可直接重排远期草图并留一句依据，禁机械顺延旧列表）→ 定出新的「唯一下一包」（文档流转见 `project-doc-flow`），并做 §8 的学习边。`ACCEPT` 不等于授权 merge/push/deploy——那要 RELEASE_OWNER 单独执行并核对源 SHA、工作树、目标环境与回退。
 
 ## 7. 打回：只打回失败的单元
 
