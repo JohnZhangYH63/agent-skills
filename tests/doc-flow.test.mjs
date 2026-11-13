@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -66,6 +66,15 @@ test('docflow-init scaffolds skeleton without overwriting and passes check-doc-f
   f.git('commit', '-qm', 'scaffold docs');
   const check = f.run(docCheck);
   assert.equal(check.status, 0, check.stdout + check.stderr);
+  assert.doesNotMatch(check.stdout + check.stderr, /缺「终局可观察目标」/);
+
+  // 旧排期页没有终局目标:只告警,不判失败
+  const plan = 'docs/work/' + readdirSync(join(f.repo, 'docs/work')).find((n) => n.startsWith('后续工程总计划'));
+  f.put(plan, readFileSync(join(f.repo, plan), 'utf8').replaceAll('终局可观察目标', '目标'));
+  f.git('commit', '-qam', 'old-style plan');
+  const old = f.run(docCheck);
+  assert.equal(old.status, 0, old.stdout + old.stderr);
+  assert.match(old.stdout + old.stderr, /缺「终局可观察目标」/);
 });
 
 test('doc-cold-archive rewrites bidirectional links, verifies sha256, and leaves uncommitted WIP unstaged', (t) => {
@@ -165,7 +174,7 @@ test('check-doc-flow catches dirty root *.md and does not misreport code changes
     doc_archive_dir: 'hot/archive',
   });
   f.put('ROADMAP.md', '# Roadmap\n');
-  f.put('PLAN.md', '# Plan\n\n**唯一下一包**: 无\n');
+  f.put('PLAN.md', '# Plan\n\n**唯一下一包**: 无\n\n**终局可观察目标**:demo\n');
   f.put('DECISIONS.md', '# Decisions\n');
   f.put('LEDGER.md', '# Ledger\n');
   f.put('INDEX.md', '# Index\n');
@@ -185,7 +194,7 @@ test('check-doc-flow catches dirty root *.md and does not misreport code changes
   assert.deepEqual(codeOnly.errors, []);
 
   // 改根目录 PLAN.md 未提交:应准确检出,--strict-sync 升为 ERROR
-  f.put('PLAN.md', '# Plan\n\n**唯一下一包**: PKG-9\n');
+  f.put('PLAN.md', '# Plan\n\n**唯一下一包**: PKG-9\n\n**终局可观察目标**:demo\n');
   const dirtyDoc = JSON.parse(f.run(docCheck, '--json').stdout);
   assert.match(dirtyDoc.warnings.join('\n'), /有 1 条未提交文档改动/);
   assert.equal(f.run(docCheck, '--strict-sync').status, 1);

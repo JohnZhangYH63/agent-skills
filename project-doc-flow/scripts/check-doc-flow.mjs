@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 文档流转门(改文档、关账、转冷后必跑;退出码 1 = 有 ERROR)。在目标仓库任意目录下执行。
 //  1. 已提交的受管 Markdown 相对链接 0 坏链(未提交文档只计数发 WARN);
-//  2. 排期页(config.plan)恰好一份,且恰有一行以 nextPackageMarker 开头的「唯一下一包」;
+//  2. 排期页(config.plan)恰好一份,且恰有一行以 nextPackageMarker 开头的「唯一下一包」,缺「终局可观察目标」发 WARN;
 //  3. 总路线图(config.roadmap)存在且不超过 roadmapMaxBytes(它是路由器);
 //  4. 热区目录(config.hotDir)根部的过程稿不超过 hotProcessLimit,超了先转冷;
 //  5. 冷区每个日期目录都有 manifest.json 与 README.md;
@@ -57,6 +57,9 @@ else {
     .filter((l) => l.trim().startsWith(marker) && /^[:：]/.test(l.trim().slice(marker.length)));
   if (hits.length !== 1) errors.push(`${plans[0]} 应恰有 1 行 "${marker}:",实际 ${hits.length}`);
   else info.nextPackage = hits[0].trim();
+  // 滚动切包的准星:没有终局目标,每波关账就无从对标重判(WARN,旧排期页补一节即可)
+  if (!readFileSync(join(root, plans[0]), 'utf8').includes('终局可观察目标'))
+    warnings.push(`排期页 ${plans[0]} 缺「终局可观察目标」:补一节写明做完后用户能看到/跑出什么(变更须负责人拍板),否则关账无法对标重判`);
 }
 
 // 3. 总路线图
