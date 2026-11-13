@@ -68,11 +68,11 @@ test('docflow-init scaffolds skeleton without overwriting and passes check-doc-f
   assert.equal(check.status, 0, check.stdout + check.stderr);
   assert.doesNotMatch(check.stdout + check.stderr, /缺「终局可观察目标」/);
 
-  // 旧排期页没有终局目标:只告警,不判失败
+  // 旧排期页没有终局目标:即使开 --strict-sync 也只告警,不判失败拦进度
   const plan = 'docs/work/' + readdirSync(join(f.repo, 'docs/work')).find((n) => n.startsWith('后续工程总计划'));
   f.put(plan, readFileSync(join(f.repo, plan), 'utf8').replaceAll('终局可观察目标', '目标'));
   f.git('commit', '-qam', 'old-style plan');
-  const old = f.run(docCheck);
+  const old = f.run(docCheck, '--strict-sync');
   assert.equal(old.status, 0, old.stdout + old.stderr);
   assert.match(old.stdout + old.stderr, /缺「终局可观察目标」/);
 });

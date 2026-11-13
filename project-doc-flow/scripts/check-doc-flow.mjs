@@ -27,6 +27,7 @@ const root = repoRootFrom();
 const cfg = loadConfig(root, args.one('config'));
 const errors = [];
 const warnings = [];
+const syncWarnings = [];
 const info = { config: cfg._path ? toRepoPath(root, cfg._path) || cfg._path : '(默认值,AGENTS.md 无 frontmatter)' };
 
 const tracked = new Set((tryGit(root, 'ls-files', '-z') ?? '').split('\0').filter(Boolean));
@@ -37,7 +38,7 @@ const managed = collectManagedMarkdown(root, cfg);
 const files = managed.filter(isTracked);
 info.markdown = files.length;
 info.untrackedDocs = managed.length - files.length;
-if (info.untrackedDocs > 0) warnings.push(`有 ${info.untrackedDocs} 份未提交的受管 Markdown,未纳入链接门`);
+if (info.untrackedDocs > 0) syncWarnings.push(`有 ${info.untrackedDocs} 份未提交的受管 Markdown,未纳入链接门`);
 let links = 0;
 for (const file of files) {
   for (const { line, target } of listLinks(readFileSync(file, 'utf8'))) {
@@ -101,7 +102,7 @@ if (branch === cfg.mainBranch && tryGit(root, 'rev-parse', '--verify', '-q', rem
     .split(/\s+/)
     .map(Number);
   info.mainVsRemote = { ahead, behind };
-  if (behind > 0) warnings.push(`本地 ${cfg.mainBranch} 落后 ${remoteRef} ${behind} 个提交:先保全 WIP 再前移(git-truth-sync)`);
+  if (behind > 0) syncWarnings.push(`本地 ${cfg.mainBranch} 落后 ${remoteRef} ${behind} 个提交:先保全 WIP 再前移(git-truth-sync)`);
   const docDirs = cfg.managed.filter((m) => m !== '*.md').map((m) => m.replace(/\/+$/, ''));
   const rootMd = cfg.managed.includes('*.md');
   const isManagedDoc = (p) =>
@@ -113,9 +114,10 @@ if (branch === cfg.mainBranch && tryGit(root, 'rev-parse', '--verify', '-q', rem
       .filter((p) => p && !p.startsWith('.claude/worktrees/')),
   ]);
   const dirty = [...dirtyPaths].filter(isManagedDoc).length;
-  if (dirty > 0) warnings.push(`有 ${dirty} 条未提交文档改动:文档真源须在提交里`);
+  if (dirty > 0) syncWarnings.push(`有 ${dirty} 条未提交文档改动:文档真源须在提交里`);
 }
-if (args.flags.has('strict-sync')) errors.push(...warnings.splice(0));
+if (args.flags.has('strict-sync')) errors.push(...syncWarnings);
+else warnings.push(...syncWarnings);
 
 if (args.flags.has('json')) console.log(JSON.stringify({ info, errors, warnings }, null, 2));
 else {
